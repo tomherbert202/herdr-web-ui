@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent, type MouseEvent, type MutableRefObject, type PointerEvent, type ReactNode } from "react";
-import { Columns2, Ellipsis, Eraser, Maximize2, Pencil, Rows2, ArrowLeftRight, X } from "lucide-react";
+import { Columns2, Ellipsis, Eraser, Maximize2, Pencil, Plus, Rows2, ArrowLeftRight, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { HerdrPane, PaneLayoutSnapshot, SessionSnapshot } from "../../shared/protocol.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
@@ -18,6 +18,7 @@ import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { displayPaneTitle } from "./Sidebar.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
+import { laneTabs, loadLaneSelection, MAX_LANE_BUILDS, saveLaneSelection } from "../lib/laneTabs.ts";
 import "./PaneCanvas.css";
 
 type PaneLayoutSplit = PaneLayoutSnapshot["splits"][number];
@@ -66,6 +67,11 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
   const [submits] = useState(() => new PaneSubmitRetention());
   const retainedIds = useSyncExternalStore(submits.subscribe, submits.snapshot, submits.snapshot);
   const lastCells = useRef(new Map<string, ReturnType<typeof layoutCells>[number]>());
+  // lane tabs: home pane id -> the pane its body shows (lib/laneTabs.ts)
+  const [laneShown, setLaneShown] = useState<Record<string, string>>(loadLaneSelection);
+  const showLane = (home: string, shown: string): void => {
+    setLaneShown((prev) => { const next = { ...prev, [home]: shown }; saveLaneSelection(next); return next; });
+  };
   const visitedTabs = useRef<readonly string[]>([]);
   useEffect(() => {
     const live = new Set(snapshot?.panes.map((item) => item.pane_id) ?? []);
@@ -241,6 +247,9 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
       const item = snapshot?.panes.find((item) => item.pane_id === cell.paneId);
       if (!item) return null;
       const offTab = cell.retained || cell.cached;
+      const lanes = laneTabs(snapshot ?? null, item);
+      const wanted = lanes?.tabs.find((tab) => tab.paneId === laneShown[item.pane_id]);
+      const shown = (wanted && snapshot?.panes.find((p) => p.pane_id === wanted.paneId)) || item;
       const active = !offTab && item.pane_id === selectedPaneId;
       const hidden = offTab || (alone !== null && alone !== item.pane_id);
       const single = offTab ? cell.width === 100 && cell.height === 100 : cells.length === 1 || alone === item.pane_id;
@@ -301,11 +310,35 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
             event.dataTransfer.effectAllowed = "move";
             event.dataTransfer.setData(PANE_DRAG_TYPE, paneDragData({ machineId, paneId: item.pane_id }));
           }}>
-          <span className="pane-frame-title">{displayPaneTitle(item)}</span>
+          {lanes ? <div className="lane-tabs" role="tablist" aria-label={t("Build tabs for {name}", { name: displayPaneTitle(item) })}>
+            {lanes.tabs.map((tab) => <span key={tab.key} className={`lane-tab${tab.paneId === shown.pane_id ? " is-on" : ""}`}>
+              <button type="button" role="tab" aria-selected={tab.paneId === shown.pane_id} className="lane-tab-button"
+                title={tab.home ? t("The lane itself") : tab.label}
+                onClick={() => { showLane(item.pane_id, tab.paneId); if (!active) onSelect(item.pane_id, false); }}>{tab.label}</button>
+              {!tab.home && tab.tabId && <button type="button" className="lane-tab-close" aria-label={t("Close {name}", { name: tab.label })}
+                onClick={() => {
+                  if (!window.confirm(t("Close build tab {name}? Its terminal stops.", { name: tab.label }))) return;
+                  if (tab.paneId === shown.pane_id) showLane(item.pane_id, item.pane_id);
+                  run(() => api.closeTab(tab.tabId!));
+                }}><X aria-hidden="true" /></button>}
+            </span>)}
+            {lanes.builds < MAX_LANE_BUILDS && <button type="button" className="icon-button lane-tab-new" aria-label={t("New build tab")}
+              title={t("New build tab ({n} of {max})", { n: String(lanes.builds + 1), max: String(MAX_LANE_BUILDS) })}
+              onClick={() => {
+                const name = window.prompt(t("Name the build (a card id works):"), "");
+                if (name === null) return;
+                const lane = item.label?.trim() ?? "";
+                run(async () => {
+                  const made = await api.createTab({ workspace_id: lanes.workspaceId, label: `${lane}·${name.trim() || String(lanes.builds + 1)}`,
+                    cwd: item.cwd ?? null, agent: { kind: "claude" } });
+                  showLane(item.pane_id, made.pane_id);
+                });
+              }}><Plus aria-hidden="true" /></button>}
+          </div> : <span className="pane-frame-title">{displayPaneTitle(item)}</span>}
           <button type="button" className="icon-button pane-frame-menu" aria-label={t("Pane actions for {name}", { name: displayPaneTitle(item) })}
             onClick={(event) => showMenu(item, event.currentTarget)}><Ellipsis aria-hidden="true" /></button>
         </div>
-        <div className="pane-frame-body"><PaneCachedContext.Provider value={cell.cached && !cell.retained}><PanePresentedContext.Provider value={!offTab}><PaneShownContext.Provider value={!hidden}>{renderPane(item, active, alone === null && cells.length > 1)}</PaneShownContext.Provider></PanePresentedContext.Provider></PaneCachedContext.Provider></div>
+        <div className="pane-frame-body"><PaneCachedContext.Provider value={cell.cached && !cell.retained}><PanePresentedContext.Provider value={!offTab}><PaneShownContext.Provider value={!hidden}>{renderPane(shown, active, alone === null && cells.length > 1)}</PaneShownContext.Provider></PanePresentedContext.Provider></PaneCachedContext.Provider></div>
       </section>;
     })}
     {alone === null && layout?.splits.map((item) => {

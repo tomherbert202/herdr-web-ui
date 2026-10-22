@@ -71,3 +71,16 @@
 }
 
 .pane-canvas.is-pending { pointer-events: none; }
+
+/* lane tabs (lib/laneTabs.ts): a Chrome-style strip in a lane pane's head; the pane's body shows the picked tab */
+.lane-tabs { display: flex; align-items: flex-end; gap: 2px; min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: none; align-self: stretch; pointer-events: auto; }
+.lane-tabs::-webkit-scrollbar { display: none; }
+.lane-tab { display: inline-flex; align-items: center; flex: 0 1 auto; min-width: 3.5em; max-width: 12em; height: calc(100% - 4px);
+  border: 1px solid var(--border); border-bottom: none; border-radius: 6px 6px 0 0; background: var(--bg-panel); color: var(--text-dim); }
+.lane-tab.is-on { background: var(--term-bg); color: var(--text-strong); border-color: var(--accent); }
+.lane-tab-button { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: none; border: 0; color: inherit; font: inherit; padding: 0 8px; height: 100%; cursor: pointer; }
+.lane-tab-close { flex: none; width: 18px; height: 18px; display: inline-grid; place-items: center; background: none; border: 0; color: inherit; opacity: .55; cursor: pointer; padding: 0; margin-right: 3px; border-radius: 4px; }
+.lane-tab-close:hover { opacity: 1; background: var(--bg-hover); }
+.lane-tab-close svg { width: 12px; height: 12px; }
+.lane-tab-new { flex: none; width: 24px; height: 24px; align-self: center; }
+.pane-frame.is-single .lane-tabs { display: none; }
