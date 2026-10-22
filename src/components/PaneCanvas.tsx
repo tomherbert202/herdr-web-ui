@@ -247,12 +247,13 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
       const item = snapshot?.panes.find((item) => item.pane_id === cell.paneId);
       if (!item) return null;
       const offTab = cell.retained || cell.cached;
-      const lanes = laneTabs(snapshot ?? null, item);
-      const wanted = lanes?.tabs.find((tab) => tab.paneId === laneShown[item.pane_id]);
-      const shown = (wanted && snapshot?.panes.find((p) => p.pane_id === wanted.paneId)) || item;
       const active = !offTab && item.pane_id === selectedPaneId;
       const hidden = offTab || (alone !== null && alone !== item.pane_id);
       const single = offTab ? cell.width === 100 && cell.height === 100 : cells.length === 1 || alone === item.pane_id;
+      const lanes = laneTabs(snapshot ?? null, item);
+      const wanted = lanes?.tabs.find((tab) => tab.paneId === laneShown[item.pane_id]);
+      // a lone pane hides the strip (CSS), so it shows the lane itself: never a build with no way back
+      const shown = (!single && wanted && snapshot?.panes.find((p) => p.pane_id === wanted.paneId)) || item;
       // Capture contextmenu before xterm focuses its helper textarea; the menu keeps focus on the original pane.
       return <section key={item.pane_id} data-layout-pane={item.pane_id}
         className={`pane-frame${active ? " is-current" : ""}${single ? " is-single" : ""}${hidden ? " is-hidden" : ""}`}
@@ -328,9 +329,11 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
                 const name = window.prompt(t("Name the build (a card id works):"), "");
                 if (name === null) return;
                 const lane = item.label?.trim() ?? "";
+                // a plain shell in the lane's folder: an agent with the desk's account and env comes from
+                // `desk-herdr tab <desk> <lane> <label> --card <id>` (propelx-desks), not from here
                 run(async () => {
                   const made = await api.createTab({ workspace_id: lanes.workspaceId, label: `${lane}·${name.trim() || String(lanes.builds + 1)}`,
-                    cwd: item.cwd ?? null, agent: { kind: "claude" } });
+                    cwd: item.cwd ?? null });
                   showLane(item.pane_id, made.pane_id);
                 });
               }}><Plus aria-hidden="true" /></button>}
@@ -338,7 +341,7 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
           <button type="button" className="icon-button pane-frame-menu" aria-label={t("Pane actions for {name}", { name: displayPaneTitle(item) })}
             onClick={(event) => showMenu(item, event.currentTarget)}><Ellipsis aria-hidden="true" /></button>
         </div>
-        <div className="pane-frame-body"><PaneCachedContext.Provider value={cell.cached && !cell.retained}><PanePresentedContext.Provider value={!offTab}><PaneShownContext.Provider value={!hidden}>{renderPane(shown, active, alone === null && cells.length > 1)}</PaneShownContext.Provider></PanePresentedContext.Provider></PaneCachedContext.Provider></div>
+        <div className="pane-frame-body"><PaneCachedContext.Provider value={cell.cached && !cell.retained}><PanePresentedContext.Provider value={!offTab}><PaneShownContext.Provider value={!hidden} key={shown.pane_id}>{renderPane(shown, active, alone === null && cells.length > 1)}</PaneShownContext.Provider></PanePresentedContext.Provider></PaneCachedContext.Provider></div>
       </section>;
     })}
     {alone === null && layout?.splits.map((item) => {
