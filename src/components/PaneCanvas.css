@@ -72,15 +72,37 @@
 
 .pane-canvas.is-pending { pointer-events: none; }
 
-/* lane tabs (lib/laneTabs.ts): a Chrome-style strip in a lane pane's head; the pane's body shows the picked tab */
-.lane-tabs { display: flex; align-items: flex-end; gap: 2px; min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: none; align-self: stretch; pointer-events: auto; }
+/* lane tabs (lib/laneTabs.ts): a Chrome-style strip in a lane pane's head; the pane's body shows the picked tab.
+   The same strip, labels, order and active state on a desktop split, a maximised pane and a phone. */
+.lane-tabs { position: relative; display: flex; align-items: flex-end; gap: 2px; min-width: 0; flex: 1; overflow-x: auto; overscroll-behavior-x: contain;
+  scrollbar-width: none; align-self: stretch; pointer-events: auto; }
 .lane-tabs::-webkit-scrollbar { display: none; }
-.lane-tab { display: inline-flex; align-items: center; flex: 0 1 auto; min-width: 3.5em; max-width: 12em; height: calc(100% - 4px);
-  border: 1px solid var(--border); border-bottom: none; border-radius: 6px 6px 0 0; background: var(--bg-panel); color: var(--text-dim); }
+/* tabs keep their full label (up to 12em) and the strip scrolls sideways, rather than squashing a label to "i…" */
+.lane-tab { display: inline-flex; align-items: center; flex: none; min-width: 3.5em; max-width: 12em; height: calc(100% - 4px);
+  border: 1px solid var(--border); border-bottom: none; border-radius: 6px 6px 0 0; background: var(--bg-panel); color: var(--text-dim);
+  font-size: var(--fs-sm); font-weight: var(--fw-medium); }
 .lane-tab.is-on { background: var(--term-bg); color: var(--text-strong); border-color: var(--accent); }
 .lane-tab-button { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: none; border: 0; color: inherit; font: inherit; padding: 0 8px; height: 100%; cursor: pointer; }
 .lane-tab-close { flex: none; width: 18px; height: 18px; display: inline-grid; place-items: center; background: none; border: 0; color: inherit; opacity: .55; cursor: pointer; padding: 0; margin-right: 3px; border-radius: 4px; }
 .lane-tab-close:hover { opacity: 1; background: var(--bg-hover); }
 .lane-tab-close svg { width: 12px; height: 12px; }
 .lane-tab-new { flex: none; width: 24px; height: 24px; align-self: center; }
-.pane-frame.is-single .lane-tabs { display: none; }
+/* A lone lane pane (a phone shows one lane at a time; a maximised pane) keeps its strip: the head is a
+   row of its own above the body instead of the floating corner ellipsis, so every build stays a tap away */
+.pane-frame.is-single.has-lanes > .pane-frame-head { position: static; display: flex; background: var(--term-bg); pointer-events: auto; }
+/* on a phone the tab strip's touch menu already carries the pane's actions: no second ellipsis */
+.pane-column:has(.tab-strip-menu) .pane-frame.is-single.has-lanes > .pane-frame-head { display: flex; }
+.pane-column:has(.tab-strip-menu) .pane-frame.is-single.has-lanes .pane-frame-menu { display: none; }
+.pane-canvas .pane-frame.is-single.has-lanes:has(.find-bar) > .pane-frame-head { display: none; }
+@media (pointer: coarse) {
+  /* a finger gets 44px everywhere in the strip: the tab, its close and the + */
+  .pane-frame-head:has(.lane-tabs) { height: calc(var(--touch-target) + 5px); }
+  .lane-tab-button { min-width: var(--touch-target); }
+  .lane-tab-close { width: var(--touch-target); height: var(--touch-target); margin-right: 0; }
+  .lane-tab-new { width: var(--touch-target); height: var(--touch-target); }
+}
+/* a mouse reaches a lane pane's actions by right-click: its hidden ellipsis gives its width to the strip,
+   so a narrow lane column still shows its + */
+@media (hover: hover) and (pointer: fine) and (not (any-pointer: coarse)) {
+  .pane-frame.has-lanes .pane-frame-menu:not(:focus-visible) { width: 0; min-width: 0; padding: 0; overflow: hidden; }
+}

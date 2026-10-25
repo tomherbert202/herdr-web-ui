@@ -252,11 +252,12 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
       const single = offTab ? cell.width === 100 && cell.height === 100 : cells.length === 1 || alone === item.pane_id;
       const lanes = laneTabs(snapshot ?? null, item);
       const wanted = lanes?.tabs.find((tab) => tab.paneId === laneShown[item.pane_id]);
-      // a lone pane hides the strip (CSS), so it shows the lane itself: never a build with no way back
-      const shown = (!single && wanted && snapshot?.panes.find((p) => p.pane_id === wanted.paneId)) || item;
+      // a lone lane pane (a phone, or maximised) keeps its strip as a row of its own (CSS has-lanes),
+      // so it shows the picked build the same as a split does
+      const shown = (wanted && snapshot?.panes.find((p) => p.pane_id === wanted.paneId)) || item;
       // Capture contextmenu before xterm focuses its helper textarea; the menu keeps focus on the original pane.
       return <section key={item.pane_id} data-layout-pane={item.pane_id}
-        className={`pane-frame${active ? " is-current" : ""}${single ? " is-single" : ""}${hidden ? " is-hidden" : ""}`}
+        className={`pane-frame${active ? " is-current" : ""}${single ? " is-single" : ""}${hidden ? " is-hidden" : ""}${lanes ? " has-lanes" : ""}`}
         aria-label={displayPaneTitle(item)} aria-current={active ? "true" : undefined} aria-hidden={hidden || undefined} inert={hidden || undefined} tabIndex={-1}
         style={!offTab && (alone === item.pane_id || stacked) ? { left: 0, top: 0, width: "100%", height: "100%" }
           : { left: `${cell.left}%`, top: `${cell.top}%`, width: `${cell.width}%`, height: `${cell.height}%` }}
@@ -312,7 +313,8 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
             event.dataTransfer.setData(PANE_DRAG_TYPE, paneDragData({ machineId, paneId: item.pane_id }));
           }}>
           {lanes ? <div className="lane-tabs" role="tablist" aria-label={t("Build tabs for {name}", { name: displayPaneTitle(item) })}>
-            {lanes.tabs.map((tab) => <span key={tab.key} className={`lane-tab${tab.paneId === shown.pane_id ? " is-on" : ""}`}>
+            {lanes.tabs.map((tab) => <span key={tab.key} className={`lane-tab${tab.paneId === shown.pane_id ? " is-on" : ""}`}
+              ref={tab.paneId === shown.pane_id ? keepLaneTabInView : undefined}>
               <button type="button" role="tab" aria-selected={tab.paneId === shown.pane_id} className="lane-tab-button"
                 title={tab.home ? t("The lane itself") : tab.label}
                 onClick={() => { showLane(item.pane_id, tab.paneId); if (!active) onSelect(item.pane_id, false); }}>{tab.label}</button>
@@ -372,6 +374,15 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
       body={t("The pane's running processes will stop. Closing its last pane also closes the workspace.")}
       confirmLabel={t("Close pane")} onClose={() => setClosing(null)} onConfirm={async () => { await api.closePane(closing.pane_id); setClosing(null); onChanged(); }} />}
   </div></PaneSubmitContext.Provider>;
+}
+
+/** The shown build tab stays in view when the strip scrolls sideways (a narrow pane, a phone). */
+function keepLaneTabInView(tab: HTMLSpanElement | null): void {
+  const strip = tab?.parentElement;
+  if (!tab || !strip) return;
+  const left = tab.offsetLeft, right = left + tab.offsetWidth;
+  if (left < strip.scrollLeft) strip.scrollLeft = left;
+  else if (right > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = right - strip.clientWidth;
 }
 
 function PaneRename({ pane, onClose, onSave }: { pane: HerdrPane; onClose: () => void; onSave: (label: string) => Promise<void> }) {
