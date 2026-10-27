@@ -12,7 +12,7 @@ const NAME = "\\p{L}\\p{N}\\p{M}_";
  */
 const FILE_PATH = new RegExp(`(?<![${NAME}/.@~:-])((?:~\\/|\\.{1,2}\\/|\\/)?(?:[${NAME}@.+-]+\\/)*[${NAME}@+-][${NAME}@.+-]*\\.[A-Za-z0-9]{1,8})(?::\\d+(?::\\d+)?|#L\\d+(?:-L?\\d+)?)?(?![${NAME}/])`, "gu");
 /** `name.ext(` is a call, not a file, unless the parenthesis holds a compiler's line and column: `App.tsx(120,8)` */
-const CALL = /\s*\((?!\d+(?:,\d+)?\))/y;
+const CALL = /\((?!\d+(?:,\d+)?\))/y;
 const FILE_URI = /file:\/\/\/[^\s<>"`]+/gi;
 /** A logical line longer than this is not prose with paths in it (a minified bundle, a blob): it is left alone. */
 const MAX_LINE_CHARS = 8192;
@@ -82,6 +82,9 @@ export function hyperlinkFilter(): { handler: (payload: string) => boolean; rese
 }
 
 interface LogicalLine {
+  /** the buffer rows (1-based) the line spans */
+  first: number;
+  last: number;
   text: string;
   /** the cell each UTF-16 unit of `text` sits in (1-based, as xterm's link ranges are) and its width */
   positions: { x: number; y: number; width: number }[];
@@ -109,7 +112,58 @@ function logicalLine(buffer: IBuffer, lineNumber: number): LogicalLine | null {
     }
     if (text.length > MAX_LINE_CHARS) return null;
   }
-  return { text, positions, clipped: buffer.getLine(first)?.isWrapped === true };
+  let last = first;
+  while (last + 1 < buffer.length && buffer.getLine(last + 1)?.isWrapped) last++;
+  return { first: first + 1, last: last + 1, text, positions, clipped: buffer.getLine(first)?.isWrapped === true };
+}
+
+/** how near the right edge a row's text must end for its last word to run on (a renderer's margin) */
+const EDGE = 3;
+/** a path's tail at a row's end: it holds a folder, so prose is never joined */
+const PATH_TAIL = new RegExp(`(?:~\\/|\\/)?[${NAME}@.+~-]*\\/[${NAME}@.+\\/-]*$`, "u");
+const PATH_HEAD = new RegExp(`^[${NAME}@.+\\/-]`, "u");
+
+/**
+ * Does `a` run on into `b`? An agent's renderer (Claude Code, Codex) breaks a long line with a real
+ * line break, not a terminal wrap, and indents the rest: a path longer than the space left is cut
+ * at the edge and xterm sees two lines, neither a whole path. A line that ends at the edge on a
+ * path's tail, followed by a line that starts (after its indent) with path characters, is one.
+ */
+function runsOn(buffer: IBuffer, a: LogicalLine, b: LogicalLine): boolean {
+  const end = a.text.trimEnd();
+  if (end.length === 0 || end.length < a.text.length - EDGE * 2) return false;
+  const at = a.positions[end.length - 1];
+  const cols = buffer.getLine(a.last - 1)?.length ?? 0;
+  if (!at || at.y !== a.last || at.x + at.width - 1 < cols - EDGE) return false;
+  if (!PATH_TAIL.test(end)) return false;
+  // a row that already ends on a whole file name, then output that starts at the margin, is two lines
+  if (/\.[A-Za-z0-9]{1,8}$/.test(end) && !/^\s/.test(b.text)) return false;
+  return PATH_HEAD.test(b.text.trimStart()) && !/^\s*[-*•●⎿]\s/u.test(b.text);
+}
+
+/** `line` with the lines it runs on from and into (at most two each way), as one text. */
+function joinedLine(buffer: IBuffer, line: LogicalLine): LogicalLine {
+  const chain = [line];
+  for (let n = 0; n < 2 && chain[0]!.first > 1; n++) {
+    const before = logicalLine(buffer, chain[0]!.first - 1);
+    if (!before || !runsOn(buffer, before, chain[0]!)) break;
+    chain.unshift(before);
+  }
+  for (let n = 0; n < 2 && chain[chain.length - 1]!.last < buffer.length; n++) {
+    const after = logicalLine(buffer, chain[chain.length - 1]!.last + 1);
+    if (!after || !runsOn(buffer, chain[chain.length - 1]!, after)) break;
+    chain.push(after);
+  }
+  if (chain.length === 1) return line;
+  let text = chain[0]!.text.trimEnd();
+  const positions = chain[0]!.positions.slice(0, text.length);
+  for (const next of chain.slice(1)) {
+    const indent = next.text.length - next.text.trimStart().length;
+    const body = next.text.slice(indent).trimEnd();
+    text += body;
+    positions.push(...next.positions.slice(indent, indent + body.length));
+  }
+  return { first: chain[0]!.first, last: chain[chain.length - 1]!.last, text, positions, clipped: chain[0]!.clipped };
 }
 
 /** The runs of `text` that hold `://`, each from the whitespace before to the whitespace after: one pass. */
@@ -129,8 +183,9 @@ function addresses(text: string): [number, number][] {
 type FileLink = Omit<ILink, "activate"> & { activate: (event: MouseEvent) => void };
 
 export function terminalFileLinks(buffer: IBuffer, lineNumber: number, open: (path: string, event: MouseEvent) => void): FileLink[] {
-  const line = logicalLine(buffer, lineNumber);
-  if (line === null) return [];
+  const own = logicalLine(buffer, lineNumber);
+  if (own === null) return [];
+  const line = joinedLine(buffer, own);
   const { text, positions } = line;
   // the first word of a line whose beginning is gone would open as a path of its own: `hijk/App.tsx`
   const firstGap = text.search(/\s/);

@@ -249,3 +249,52 @@ describe("terminal file links", () => {
     term.dispose();
   });
 });
+
+describe("a path an agent's renderer broke across lines", () => {
+  const P = "/home/tom/projects/brain/tasks/261025-02-ims-persistent-lane/MOCK-CARD-BRIEF.md";
+  const texts = (term: Terminal, y: number) => terminalFileLinks(term.buffer.active, y, () => {}).map((link) => link.text);
+
+  it("is one link on both rows when the first ends at the edge and the rest is indented", async () => {
+    const term = new Terminal({ cols: 50, rows: 6, allowProposedApi: true });
+    // Claude Code: a two-space margin, the path cut at the 50th column, the rest on a new line
+    await written(term, `  ${P.slice(0, 48)}\r\n  ${P.slice(48)} (Part 2)\r\n`);
+    expect(texts(term, 1)).toEqual([P]);
+    expect(texts(term, 2)).toEqual([P]);
+    const opened: string[] = [];
+    terminalFileLinks(term.buffer.active, 2, (path) => opened.push(path))[0]!.activate(click);
+    expect(opened).toEqual([P]);
+  });
+
+  it("joins three rows, as a narrow phone pane cuts a long path twice", async () => {
+    const term = new Terminal({ cols: 34, rows: 6, allowProposedApi: true });
+    await written(term, `  ${P.slice(0, 32)}\r\n  ${P.slice(32, 64)}\r\n  ${P.slice(64)}\r\n`);
+    for (const y of [1, 2, 3]) expect(texts(term, y)).toEqual([P]);
+  });
+
+  it("leaves prose that only reaches the edge alone", async () => {
+    const term = new Terminal({ cols: 30, rows: 6, allowProposedApi: true });
+    await written(term, "  see the notes in docs/guide\r\n  .md later on, and src/a.ts\r\n");
+    // a short line is not run on: it ends before the edge
+    const short = new Terminal({ cols: 60, rows: 4, allowProposedApi: true });
+    await written(short, "  open docs/plan\r\n  notes.md now\r\n");
+    expect(texts(short, 1)).toEqual([]);
+    // a line that ends at the edge on a word with no folder is not joined to the next
+    const word = new Terminal({ cols: 20, rows: 4, allowProposedApi: true });
+    await written(word, "  the quick brown fo\r\n  x.md jumps\r\n");
+    expect(texts(word, 1)).toEqual([]);
+  });
+
+  it("does not join a bullet that starts the next line", async () => {
+    const term = new Terminal({ cols: 30, rows: 4, allowProposedApi: true });
+    await written(term, `  ${"see src/lib/terminalFile".padEnd(28)}\r\n  - Links.ts and more\r\n`);
+    expect(texts(term, 2)).not.toContain("src/lib/terminalFile- Links.ts");
+  });
+});
+
+describe("a path with a note after it", () => {
+  it("links `a/b.md (Part 2)`: a space before the bracket is prose, not a call", async () => {
+    const term = new Terminal({ cols: 120, allowProposedApi: true });
+    await written(term, "Updated mock: /home/tom/x/MOCK-CARD-BRIEF.md (Part 2) and run.js(arg)");
+    expect(terminalFileLinks(term.buffer.active, 1, () => {}).map((link) => link.text)).toEqual(["/home/tom/x/MOCK-CARD-BRIEF.md"]);
+  });
+});
