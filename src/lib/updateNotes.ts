@@ -28,6 +28,22 @@ export function reloadReason(
   return chunkFailed ? "incomplete" : null;
 }
 
+/** how long the "App updated" line is shown before the app reloads itself */
+export const AUTO_RELOAD_DELAY_MS = 2500;
+/** the sessionStorage key naming the server commit this tab already reloaded itself for */
+export const AUTO_RELOADED_KEY = "herdr-web-ui:auto-reloaded-for";
+
+/**
+ * Whether the tab reloads itself for an update (B-133, 1 Nov 2026): an installed desktop app is never
+ * closed, so a line asking for a reload was still there a week later, on a build with none of the
+ * fixes since. It reloads when the server runs another commit, nothing is unsent, and it has not
+ * already reloaded for that commit (a tab that still differs after its own reload shows the line
+ * and its button instead of reloading forever).
+ */
+export function autoReloadDue(reason: ReloadReason | null, unsent: boolean, revision: string | null, reloadedFor: string | null): boolean {
+  return reason === "updated" && !unsent && revision !== null && revision !== reloadedFor;
+}
+
 /**
  * The notes to show beside an offered update: those read from the very commit the status
  * offers, until it is installed. Null when there are none to show. A check reports nothing

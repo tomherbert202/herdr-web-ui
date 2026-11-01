@@ -4,7 +4,8 @@ import { CHECKOUT_CHANGED_REASON, SUMMARY_GROUPS, type SummaryGroup, type Update
 import { useHerdrUpdate } from "../lib/herdrUpdate.ts";
 import { runningAppVersion, runningHerdrVersion, staleClientVersion, versionLabel } from "../lib/runningVersion.ts";
 import { useSettings } from "../lib/settings.ts";
-import { announcesUpdate, readAnnounced, summaryFor, watchAnnounced, writeAnnounced } from "../lib/updateNotes.ts";
+import { AUTO_RELOAD_DELAY_MS, AUTO_RELOADED_KEY, announcesUpdate, autoReloadDue, readAnnounced, summaryFor, watchAnnounced, writeAnnounced } from "../lib/updateNotes.ts";
+import { composerDrafts } from "../lib/composerDraft.ts";
 import { describeUpdate } from "../lib/updateProgress.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import { lazyChunkFailed, onLazyChunkFailure } from "../lib/lazyChunk.ts";
@@ -19,6 +20,11 @@ declare const __APP_VERSION__: string;
 const CHANGELOG = "https://github.com/devswha/herdr-web-ui/blob/main/CHANGELOG.md";
 /** the restart commands for a plugin and a source install */
 const RESTART_HELP = "https://github.com/devswha/herdr-web-ui/blob/main/docs/guide.md#updates";
+
+/** the server commit this tab last reloaded itself for, if any */
+function readAutoReloaded(): string | null {
+  try { return window.sessionStorage.getItem(AUTO_RELOADED_KEY); } catch { return null; }
+}
 
 /**
  * What an update brings, or brought: each release it installs, newest first. A release is told
@@ -172,6 +178,17 @@ export function UpdateNotice({ updates, onOpen }: { updates: UpdatesModel; onOpe
   const installing = status?.phase === "building" || status?.phase === "restarting";
   // Try again after such a failure looks for the release again, and the line waits with it
   const looking = attempted && busy;
+  // the reload the tab does by itself (autoReloadDue): nothing unsent, once per server commit
+  const revision = status?.current_revision ?? null;
+  const reloading = reload === "updated" && autoReloadDue(reload, composerDrafts.hasUnsent(), revision, readAutoReloaded());
+  useEffect(() => {
+    if (!reloading || revision === null) return;
+    const timer = setTimeout(() => {
+      try { window.sessionStorage.setItem(AUTO_RELOADED_KEY, revision); } catch { /* private mode: the line and its button remain */ }
+      window.location.reload();
+    }, AUTO_RELOAD_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [reloading, revision]);
   if (!needsReload && !status?.available && !installing && !started && !looking && !(attempted && failed)) {
     if (!installed?.version || !announcesUpdate(status, installed, announced, Date.now())) return null;
     const version = installed.version;
@@ -195,7 +212,7 @@ export function UpdateNotice({ updates, onOpen }: { updates: UpdatesModel; onOpe
       <a className="btn" href={RESTART_HELP} target="_blank" rel="noreferrer">{t("How to restart")}</a>
     </div>;
     // a warning before a step that loses unsent drafts: read in full, so this line alone may wrap
-    const text = reload === "updated" ? t("App updated. Save unsent drafts before reloading.") : t("Part of the app could not load. Save unsent drafts, then reload.");
+    const text = reloading ? t("App updated. Reloading.") : reload === "updated" ? t("App updated. Save unsent drafts before reloading.") : t("Part of the app could not load. Save unsent drafts, then reload.");
     return <div className="update-notice is-line is-warning" role="status">
       <span>{text}</span>
       <button type="button" className="btn" onClick={() => window.location.reload()}>{t("Reload app")}</button>

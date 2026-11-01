@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { readInstalledNotes, readUpdateNotes, RELEASES_LIMIT, SUMMARY_LANGUAGES, type InstalledNotes, type UpdateNotes } from "../../shared/update.ts";
 import { ApiError } from "./api.ts";
 import { LANGUAGE_SETTINGS } from "./i18n.ts";
-import { ANNOUNCED_FOR_MS, announcesUpdate, installedUpdate, notesOffer, notesRetryDelay, notesUnboundDelay, offeredNotes, reloadReason, SKEW_ALLOWANCE_MS, summaryFor } from "./updateNotes.ts";
+import { ANNOUNCED_FOR_MS, announcesUpdate, autoReloadDue, installedUpdate, notesOffer, notesRetryDelay, notesUnboundDelay, offeredNotes, reloadReason, SKEW_ALLOWANCE_MS, summaryFor } from "./updateNotes.ts";
 
 describe("the bounds of a read answer", () => {
   it("reads at most RELEASES_LIMIT releases of an answer, whatever sent it", () => {
@@ -244,3 +244,21 @@ describe("the reload a tab is offered", () => {
     expect(reloadReason(app, { current_revision: "b".repeat(40) }, true, true)).toBeNull();
   });
 });
+
+describe("the reload the tab does by itself (B-133)", () => {
+  const rev = "b".repeat(40);
+  it("is due for an update with nothing unsent, once per server commit", () => {
+    expect(autoReloadDue("updated", false, rev, null)).toBe(true);
+    expect(autoReloadDue("updated", false, rev, "a".repeat(40))).toBe(true);
+    // a tab that already reloaded for this commit shows the line and its button instead
+    expect(autoReloadDue("updated", false, rev, rev)).toBe(false);
+    // words not yet sent are the user's to keep
+    expect(autoReloadDue("updated", true, rev, null)).toBe(false);
+    // a restart or a missing part is not an update the reload would bring in
+    expect(autoReloadDue("restart", false, rev, null)).toBe(false);
+    expect(autoReloadDue("incomplete", false, rev, null)).toBe(false);
+    expect(autoReloadDue(null, false, rev, null)).toBe(false);
+    expect(autoReloadDue("updated", false, null, null)).toBe(false);
+  });
+});
+

@@ -9,6 +9,7 @@ interface InFlight { sent: string; at: number }
  */
 export const SEND_LEASE_MS = 120_000;
 const SENDING_PREFIX = "herdr-web-ui:composer-sending:";
+const DRAFT_PREFIX = "herdr-web-ui:composer-draft:";
 export class ComposerDraftStore {
   private drafts = new Map<string, Draft>();
   private saved = new Map<string, string | null>();
@@ -25,6 +26,22 @@ export class ComposerDraftStore {
     private schedule: (run: () => void, ms: number) => unknown = (run, ms) => setTimeout(run, ms),
   ) {}
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
+  /**
+   * Whether any pane has words not yet sent: a draft this tab holds or is sending, or one saved by a
+   * pane since unmounted or another tab (`keys` lists the storage; the app's are localStorage's). A
+   * reload the app does by itself (B-133) must not cost one.
+   */
+  hasUnsent(keys: () => string[] = () => { try { return Object.keys(window.localStorage); } catch { return []; } }): boolean {
+    for (const draft of this.drafts.values()) if (draft.sending || draft.text.trim() !== "") return true;
+    if (this.pending.size > 0) return true;
+    for (const key of keys()) {
+      if (key.startsWith(DRAFT_PREFIX)) {
+        if (this.drafts.has(key)) continue;
+        try { if ((this.storage().getItem(key) ?? "").trim() !== "") return true; } catch { /* private mode */ }
+      } else if (key.startsWith(SENDING_PREFIX) && this.inFlight(key.slice(SENDING_PREFIX.length)) !== null) return true;
+    }
+    return false;
+  }
   private notify(): void { for (const listener of this.listeners) listener(); }
   read(key: string): Draft {
     let draft = this.drafts.get(key);
@@ -131,7 +148,7 @@ export const composerDrafts = new ComposerDraftStore();
 export function storageEventDraft(key: string | null): string | null {
   if (key === null) return null;
   if (key.startsWith(SENDING_PREFIX)) return key.slice(SENDING_PREFIX.length);
-  return key.startsWith("herdr-web-ui:composer-draft:") ? key : null;
+  return key.startsWith(DRAFT_PREFIX) ? key : null;
 }
 if (typeof window !== "undefined") window.addEventListener("storage", (event) => {
   const key = storageEventDraft(event.key);

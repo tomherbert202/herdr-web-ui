@@ -155,3 +155,23 @@ it("lets a tab send again once another tab's abandoned lease runs out, and tells
     setSystemTime();
   }
 });
+
+it("knows whether anything is unsent: a draft held, sending, or saved by a pane since gone (B-133)", () => {
+  const { data, store } = fixture();
+  const keys = () => [...data.keys()];
+  expect(store.hasUnsent(keys)).toBe(false);
+  store.set("herdr-web-ui:composer-draft:a", "  ");
+  expect(store.hasUnsent(keys)).toBe(false);
+  store.set("herdr-web-ui:composer-draft:a", "not yet");
+  expect(store.hasUnsent(keys)).toBe(true);
+  store.set("herdr-web-ui:composer-draft:a", "");
+  expect(store.hasUnsent(keys)).toBe(false);
+  // a pane this tab no longer shows left its draft in storage
+  data.set("herdr-web-ui:composer-draft:b", "later");
+  expect(store.hasUnsent(keys)).toBe(true);
+  data.delete("herdr-web-ui:composer-draft:b");
+  // a send on its way is not done either
+  data.set("herdr-web-ui:composer-sending:c", JSON.stringify({ sent: "go", at: Date.now() }));
+  expect(store.hasUnsent(keys)).toBe(true);
+});
+
