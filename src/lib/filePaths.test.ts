@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { codeIsFilePath, fileLineTarget, pathParts, splitFilePaths } from "./filePaths.ts";
+import { codeFilePath, codeIsFilePath, fileLineTarget, pathParts, splitFilePaths } from "./filePaths.ts";
 
 const paths = (text: string) => splitFilePaths(text).filter((part) => typeof part !== "string").map((part) => (part as { path: string }).path);
 
@@ -105,3 +105,16 @@ describe("pathParts", () => {
     expect(pathParts("/x/name.")).toEqual({ folder: "/x", stem: "name.", extension: "" });
   });
 });
+
+describe("codeFilePath: a span ended with the sentence's punctuation (B-126)", () => {
+  it("opens the path without the colon or full stop", () => {
+    const D = "/home/tom/projects/brain/tasks/261101-01-office-studio-purchases/DECISIONS.md";
+    expect(codeFilePath(`${D}:`)).toBe(D);
+    expect(codeFilePath(`${D}.`)).toBe(D);
+    expect(codeFilePath(`${D}:12`)).toBe(`${D}:12`);
+    expect(codeFilePath(D)).toBe(D);
+    expect(codeFilePath("process.env.")).toBeNull();
+    expect(codeFilePath("note:")).toBeNull();
+  });
+});
+

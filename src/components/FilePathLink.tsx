@@ -16,10 +16,10 @@ export function linksFilePaths(text: string): boolean {
   return text.length <= FILE_LINK_LIMIT && splitFilePaths(text).filter((part) => typeof part !== "string").length <= FILE_LINK_COUNT;
 }
 
-/** A file path the viewer opens: a button that reads as the text or code it replaced. */
-export function FilePathLink({ path, code, open }: { path: string; code: boolean; open: (path: string) => void }) {
+/** A file path the viewer opens: a button that reads as the text or code it replaced (`shown`, when that is more than the path). */
+export function FilePathLink({ path, code, open, shown = path }: { path: string; code: boolean; open: (path: string) => void; shown?: string }) {
   const t = useT();
-  const label = code ? <code>{path}</code> : path;
+  const label = code ? <code>{shown}</code> : shown;
   return <button type="button" className={`markdown-file${code ? " is-code" : ""}`} title={t("Open {path}", { path })} onClick={() => open(path)}>{label}</button>;
 }
 

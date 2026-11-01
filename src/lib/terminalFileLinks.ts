@@ -138,6 +138,10 @@ function runsOn(buffer: IBuffer, a: LogicalLine, b: LogicalLine): boolean {
   if (!PATH_TAIL.test(end)) return false;
   // a row that already ends on a whole file name, then output that starts at the margin, is two lines
   if (/\.[A-Za-z0-9]{1,8}$/.test(end) && !/^\s/.test(b.text)) return false;
+  // a whole file name and a full stop is a sentence's end that happened to reach the edge
+  // ("See a/DECISIONS.md." over "Line ref ..."): joined, it asked for `DECISIONS.md.Line` (B-126).
+  // Only a lowercase word with nothing after it (`ts`) is the rest of a name cut after a dot.
+  if (/\.[A-Za-z0-9]{1,8}\.$/.test(end) && !/^[a-z0-9]{1,8}(?=[\s:#),;]|$)/.test(b.text.trimStart())) return false;
   return PATH_HEAD.test(b.text.trimStart()) && !/^\s*[-*•●⎿]\s/u.test(b.text);
 }
 

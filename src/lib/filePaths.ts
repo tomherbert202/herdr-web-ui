@@ -77,6 +77,16 @@ export function codeIsFilePath(code: string): boolean {
     && code.split(" ").filter((word) => CODE_PATH.test(word)).length < 2;
 }
 
+/**
+ * The file a code span names, or null: `a/DECISIONS.md:` and `a/b.md.` too, as an agent ends a
+ * span with the sentence's colon or full stop (B-126). The punctuation is not part of the path.
+ */
+export function codeFilePath(code: string): string | null {
+  if (codeIsFilePath(code)) return code;
+  const bare = code.replace(/[:.,;]+$/, "");
+  return bare !== code && codeIsFilePath(bare) ? bare : null;
+}
+
 /** Split a viewer target; columns and range ends are ignored, and only positive safe lines are marked. */
 export function fileLineTarget(target: string): { path: string; line: number | null } {
   const suffix = LINE_SUFFIX.exec(target);

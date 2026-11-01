@@ -284,6 +284,21 @@ describe("a path an agent's renderer broke across lines", () => {
     expect(texts(word, 1)).toEqual([]);
   });
 
+  it("ends a path at a full stop that fills the row: B-126", async () => {
+    const D = "/home/tom/projects/brain/tasks/261101-01-office-studio-purchases/DECISIONS.md";
+    const term = new Terminal({ cols: 84, rows: 6, allowProposedApi: true });
+    // Claude Code at 84 columns: "  See " + the path + "." is exactly 84 characters
+    await written(term, `  See ${D}.\r\n  Line ref ${D.slice(0, 74)}\r\n${D.slice(74)}:12\r\n`);
+    expect(texts(term, 1)).toEqual([D]);
+    const opened: string[] = [];
+    terminalFileLinks(term.buffer.active, 1, (path) => opened.push(path))[0]!.activate(click);
+    expect(opened).toEqual([D]);
+    // a name cut right after its dot still joins: `notes.test.` over `ts`
+    const cut = new Terminal({ cols: 30, rows: 4, allowProposedApi: true });
+    await written(cut, "  open the src/lib/notes.test.\r\n  ts now\r\n");
+    expect(texts(cut, 1)).toEqual(["src/lib/notes.test.ts"]);
+  });
+
   it("does not join a bullet that starts the next line", async () => {
     const term = new Terminal({ cols: 30, rows: 4, allowProposedApi: true });
     await written(term, `  ${"see src/lib/terminalFile".padEnd(28)}\r\n  - Links.ts and more\r\n`);
