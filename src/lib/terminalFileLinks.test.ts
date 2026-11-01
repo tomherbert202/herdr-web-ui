@@ -293,6 +293,11 @@ describe("a path an agent's renderer broke across lines", () => {
     const opened: string[] = [];
     terminalFileLinks(term.buffer.active, 1, (path) => opened.push(path))[0]!.activate(click);
     expect(opened).toEqual([D]);
+    // a row the terminal wrapped itself comes as two plain rows: `DECISIONS.m` over `d: a`
+    const wrapped = new Terminal({ cols: 78, rows: 4, allowProposedApi: true });
+    await written(wrapped, `  ${D.slice(0, 76)}\r\n${D.slice(76)}: a laptop\r\n`);
+    expect(texts(wrapped, 1)).toEqual([D]);
+    expect(texts(wrapped, 2)).toEqual([D]);
     // a name cut right after its dot still joins: `notes.test.` over `ts`
     const cut = new Terminal({ cols: 30, rows: 4, allowProposedApi: true });
     await written(cut, "  open the src/lib/notes.test.\r\n  ts now\r\n");

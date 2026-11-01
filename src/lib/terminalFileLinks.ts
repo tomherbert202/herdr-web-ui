@@ -137,7 +137,15 @@ function runsOn(buffer: IBuffer, a: LogicalLine, b: LogicalLine): boolean {
   if (!at || at.y !== a.last || at.x + at.width - 1 < cols - EDGE) return false;
   if (!PATH_TAIL.test(end)) return false;
   // a row that already ends on a whole file name, then output that starts at the margin, is two lines
-  if (/\.[A-Za-z0-9]{1,8}$/.test(end) && !/^\s/.test(b.text)) return false;
+  // unless it fills every column and the next row carries on in the extension's case: a terminal
+  // that wrapped the row itself (herdr's attach stream sends a wrap as two plain rows, B-126) cut
+  // `DECISIONS.m` from `d: a`, while `README.md` over `PASS` is a name and then output
+  const extension = /\.([A-Za-z0-9]{1,8})$/.exec(end)?.[1];
+  if (extension !== undefined && !/^\s/.test(b.text)) {
+    const full = at.x + at.width - 1 >= cols;
+    const sameCase = (c: string): string => /[a-z0-9]/.test(c) ? "lower" : /[A-Z]/.test(c) ? "upper" : "other";
+    if (!full || sameCase(extension.slice(-1)) !== sameCase(b.text[0] ?? "") || sameCase(b.text[0] ?? "") === "other") return false;
+  }
   // a whole file name and a full stop is a sentence's end that happened to reach the edge
   // ("See a/DECISIONS.md." over "Line ref ..."): joined, it asked for `DECISIONS.md.Line` (B-126).
   // Only a lowercase word with nothing after it (`ts`) is the rest of a name cut after a dot.
