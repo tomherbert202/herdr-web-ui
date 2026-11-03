@@ -33,7 +33,7 @@ import { CompletionTracker, type OmoRest } from "./completion.ts";
 import { launchedAgents } from "./launched-agents.ts";
 import { SHELL_AGENTS, shellAgentExecutable } from "./shell-agent.ts";
 import { claudeForegroundSession, claudeSessionTempDir } from "./claude-store.ts";
-import { fileResponse, findFile, crossSiteFileRead, forgetPageMedia, pageMediaResponse, pageMediaSource, PAGE_MEDIA_PATH } from "./file-view.ts";
+import { fileResponse, fileRoots, findFile, crossSiteFileRead, forgetPageMedia, pageMediaResponse, pageMediaSource, PAGE_MEDIA_PATH } from "./file-view.ts";
 import {
   agentManifests,
   agentPrompt,
@@ -2028,7 +2028,7 @@ export function createServer(
           try { cwd = (await paneContext(paneId)).cwd; } catch { /* an absolute path still opens */ }
         }
         const path = url.searchParams.get("path") ?? "";
-        const found = await findFile(path, cwd, () => paneId ? claudeTempFolder(paneId) : Promise.resolve(null));
+        const found = await findFile(path, cwd, () => paneId ? claudeTempFolder(paneId) : Promise.resolve(null), fileRoots(options.stateDir ?? defaultStateDir()));
         if (found === null) return jsonResponse({ error: { code: "not_found", message: "no readable file at that path" } }, 404);
         // several files end in that name: the viewer lists them to choose from
         if ("candidates" in found) return jsonResponse({ error: { code: "ambiguous_path", message: "several files have that name", candidates: found.candidates } }, 409);

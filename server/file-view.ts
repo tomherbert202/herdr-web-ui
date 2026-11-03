@@ -121,7 +121,7 @@ export function locateFileInFolder(input: string, folder: string, anyForm = fals
 }
 
 /** Try every exact place before opening a name stored in another form. */
-export async function findFile(input: string, cwd: string | null, scratchFolder: () => Promise<string | null>): Promise<ReturnType<typeof locateFile>> {
+export async function findFile(input: string, cwd: string | null, scratchFolder: () => Promise<string | null>, roots: FileRoot[] = []): Promise<ReturnType<typeof locateFile>> {
   const exact = locateFile(input, cwd);
   if (exact !== null) return exact;
   let folder: string | null = null;
@@ -134,7 +134,82 @@ export async function findFile(input: string, cwd: string | null, scratchFolder:
   }
   const found = locateFile(input, cwd, true);
   if (found !== null) return found;
+  const inRoots = locateInRoots(input, cwd, roots);
+  if (inRoots !== null) return inRoots;
   return folder === null ? null : locateFileInFolder(input, folder, true);
+}
+
+/** The folder holding `.git` at or above `cwd`: a lane runs in its repo's subfolder and names paths from the top. */
+export function gitRoot(cwd: string | null): string | null {
+  if (cwd === null) return null;
+  for (let dir = resolve(cwd); ; dir = dirname(dir)) {
+    if (existsSync(join(dir, ".git"))) return dir;
+    if (dirname(dir) === dir) return null;
+  }
+}
+
+/** One configured root: a folder, or `<folder>/*` for each folder in it (each repo in a projects folder). */
+export interface FileRoot { path: string; spread: boolean }
+
+/**
+ * The folders a relative path is also read against when the pane's own folder does not hold it
+ * (B-159): an agent in one repo names a file of another the way that repo's people do
+ * (`world/urbn.md`, `tasks/<slug>/PLAN.md`), and the tap opened nothing. From the environment
+ * (`HERDR_WEB_FILE_ROOTS`, split like PATH) and the file `file-roots` in the state folder (one
+ * per line, `#` starts a note); `~/` is the home folder. None by default.
+ */
+export function fileRoots(stateDir: string, env: Record<string, string | undefined> = process.env): FileRoot[] {
+  const lines: string[] = (env["HERDR_WEB_FILE_ROOTS"] ?? "").split(delimiter);
+  try { lines.push(...readFileSync(join(stateDir, "file-roots"), "utf8").split("\n")); } catch { /* no file: no roots */ }
+  const roots: FileRoot[] = [];
+  for (const raw of lines) {
+    let line = raw.replace(/#.*$/, "").trim();
+    if (line === "") continue;
+    if (line === "~" || line.startsWith("~/")) line = join(homedir(), line.slice(1));
+    const spread = /[\\/]\*$/.test(line);
+    const path = resolve(spread ? line.slice(0, -2) : line);
+    if (isAbsolute(path)) roots.push({ path, spread });
+  }
+  return roots;
+}
+
+/**
+ * A relative path read against the pane's repo root, then each configured root in order. The
+ * repo root or a root named on its own wins at its first match; matches found only by spreading
+ * a folder (several repos may each hold `world/urbn.md`) open when there is one, and are listed to
+ * choose from when there are several. A path that climbs out of its root (`../`) is not followed.
+ */
+export function locateInRoots(input: string, cwd: string | null, roots: FileRoot[]): ReturnType<typeof locateFile> {
+  const relative = input.trim();
+  if (relative === "" || isAbsolute(relative) || relative.startsWith("~") || /^[a-z]:/i.test(relative)) return null;
+  const tried = new Set<string>(cwd === null ? [] : [resolve(cwd)]);
+  const ordered: { path: string; named: boolean }[] = [];
+  const repo = gitRoot(cwd);
+  if (repo !== null) ordered.push({ path: repo, named: true });
+  for (const root of roots) {
+    if (!root.spread) { ordered.push({ path: root.path, named: true }); continue; }
+    try {
+      for (const name of readdirSync(root.path).sort()) ordered.push({ path: join(root.path, name), named: false });
+    } catch { /* an unreadable folder adds nothing */ }
+  }
+  const spread: FileInfo[] = [];
+  const seen = new Set<string>();
+  for (const root of ordered) {
+    if (tried.has(root.path)) continue;
+    tried.add(root.path);
+    const target = resolve(root.path, relative);
+    if (!target.startsWith(root.path + sep)) continue;
+    const info = fileInfo(target);
+    if (info === null) continue;
+    let real: string;
+    try { real = realpathSync(target); } catch { continue; }
+    if (seen.has(real)) continue;
+    seen.add(real);
+    if (root.named && spread.length === 0) return { info };
+    spread.push(info);
+  }
+  if (spread.length === 0) return null;
+  return spread.length === 1 ? { info: spread[0]! } : { candidates: spread.map((info) => info.path) };
 }
 
 /** What the viewer needs to know about a file, or null when it is not a readable file. */

@@ -304,6 +304,35 @@ describe("a path an agent's renderer broke across lines", () => {
     expect(texts(cut, 1)).toEqual(["src/lib/notes.test.ts"]);
   });
 
+  it("joins a path printed for a narrower grid than this terminal's: B-159", async () => {
+    // the rows of Tom's screenshot, printed by Claude Code at 84 columns, drawn by a phone at 88 to 120
+    const R = "/home/tom/projects/brain/tasks/261103-02-deal-outreach-engine/RECOMMENDATION-TOOLS.md";
+    const reply = [
+      "  - Rulings: both segments at 200 a day each with week one as a dry run; the build",
+      "    runs in the Agent Lab with the BMAD agent builder and deploys autonomous on the",
+      `  - Tool set: ${R.slice(0, 70)}`,
+      `    ${R.slice(70)}. Have now: Firecrawl, Perplexity, RocketReach (key on disk, to`,
+      "    be vaulted), LinkedIn Sales Navigator through your signed-in Chrome, Browser",
+    ].join("\r\n");
+    for (const cols of [84, 88, 90, 100, 120]) {
+      const term = new Terminal({ cols, rows: 8, allowProposedApi: true });
+      await written(term, `${reply}\r\n`);
+      expect(texts(term, 3)).toEqual([R]);
+      expect(texts(term, 4)).toEqual([R]);
+      const opened: string[] = [];
+      terminalFileLinks(term.buffer.active, 4, (path) => opened.push(path))[0]!.activate(click);
+      expect(opened).toEqual([R]);
+      term.dispose();
+    }
+  });
+
+  it("still leaves two short lines alone in a wide terminal: B-159", async () => {
+    const term = new Terminal({ cols: 120, rows: 6, allowProposedApi: true });
+    await written(term, "  open docs/plan\r\n  notes.md now\r\n  and src/a.ts\r\n");
+    expect(texts(term, 1)).toEqual([]);
+    expect(texts(term, 3)).toEqual(["src/a.ts"]);
+  });
+
   it("does not join a bullet that starts the next line", async () => {
     const term = new Terminal({ cols: 30, rows: 4, allowProposedApi: true });
     await written(term, `  ${"see src/lib/terminalFile".padEnd(28)}\r\n  - Links.ts and more\r\n`);

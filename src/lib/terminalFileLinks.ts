@@ -119,6 +119,42 @@ function logicalLine(buffer: IBuffer, lineNumber: number): LogicalLine | null {
 
 /** how near the right edge a row's text must end for its last word to run on (a renderer's margin) */
 const EDGE = 3;
+/** rows either side of a row read to find the width its block was printed at */
+const BLOCK_ROWS = 20;
+/** rows of a block that must end near its widest row before that width counts as the edge */
+const BLOCK_SUPPORT = 3;
+/** the narrowest width a reply is printed at (a phone's grid); short lines in a wide terminal are not a block */
+const BLOCK_MIN_COLS = 40;
+
+/** The column (1-based) row `y` (0-based) ends at: its last cell with text, 0 for an empty row. */
+function rowEnd(buffer: IBuffer, y: number): number {
+  const line = buffer.getLine(y);
+  if (!line) return 0;
+  for (let x = line.length - 1; x >= 0; x--) {
+    const cell = line.getCell(x);
+    if (cell && cell.getWidth() > 0 && cell.getChars().trim() !== "") return x + cell.getWidth();
+  }
+  return 0;
+}
+
+/**
+ * The width row `row` (1-based) was printed at. An agent's renderer breaks its lines at the pane's
+ * width when it prints them, and a printed line keeps that width: a pane is one grid every device
+ * shares, and the device that types last sets it, so a phone often draws a reply printed for
+ * another device's narrower grid (B-159). Then a path cut at the old edge ends columns short of
+ * this terminal's edge and neither half was a link. The block's own edge is its widest row near
+ * `row`, taken only when several rows reach it, as a reply's wrapped prose does, and only from
+ * 40 columns up; otherwise (a few short lines) it is this terminal's width, as before.
+ */
+function renderWidth(buffer: IBuffer, row: number): number {
+  const cols = buffer.getLine(row - 1)?.length ?? 0;
+  const ends: number[] = [];
+  for (let y = Math.max(0, row - 1 - BLOCK_ROWS); y <= Math.min(buffer.length - 1, row - 1 + BLOCK_ROWS); y++) ends.push(rowEnd(buffer, y));
+  const widest = Math.max(0, ...ends);
+  if (widest >= cols - EDGE || widest < BLOCK_MIN_COLS) return cols;
+  const near = ends.filter((end) => end >= widest - EDGE * 2).length;
+  return near >= BLOCK_SUPPORT ? widest : cols;
+}
 /** a path's tail at a row's end: it holds a folder, so prose is never joined */
 const PATH_TAIL = new RegExp(`(?:~\\/|\\/)?[${NAME}@.+~-]*\\/[${NAME}@.+\\/-]*$`, "u");
 const PATH_HEAD = new RegExp(`^[${NAME}@.+\\/-]`, "u");
@@ -131,9 +167,9 @@ const PATH_HEAD = new RegExp(`^[${NAME}@.+\\/-]`, "u");
  */
 function runsOn(buffer: IBuffer, a: LogicalLine, b: LogicalLine): boolean {
   const end = a.text.trimEnd();
-  if (end.length === 0 || end.length < a.text.length - EDGE * 2) return false;
+  if (end.length === 0) return false;
   const at = a.positions[end.length - 1];
-  const cols = buffer.getLine(a.last - 1)?.length ?? 0;
+  const cols = renderWidth(buffer, a.last);
   if (!at || at.y !== a.last || at.x + at.width - 1 < cols - EDGE) return false;
   if (!PATH_TAIL.test(end)) return false;
   // a row that already ends on a whole file name, then output that starts at the margin, is two lines

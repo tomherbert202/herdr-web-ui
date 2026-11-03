@@ -605,3 +605,58 @@ describe("locateFile", () => {
     expect(locateFile("notes.md", root)).toMatchObject({ info: { path: join(root, "docs/notes.md") } });
   });
 });
+
+describe("a relative path from another repo: B-159", () => {
+  const made: string[] = [];
+  afterEach(() => { for (const root of made.splice(0)) rmSync(root, { recursive: true, force: true }); });
+  /** a projects folder: `brain` (with world/urbn.md and a task file), `eh-hq` (a lane's repo), `kontrol-hq` */
+  const projects = () => {
+    const root = mkdtempSync(join(tmpdir(), "herdr-file-roots-"));
+    made.push(root);
+    for (const repo of ["brain", "eh-hq", "kontrol-hq"]) mkdirSync(join(root, repo, ".git"), { recursive: true });
+    mkdirSync(join(root, "brain", "world"), { recursive: true });
+    mkdirSync(join(root, "brain", "tasks", "261103-02-x"), { recursive: true });
+    mkdirSync(join(root, "eh-hq", "tasks", "lane"), { recursive: true });
+    writeFileSync(join(root, "brain", "world", "urbn.md"), "# URBN");
+    writeFileSync(join(root, "brain", "tasks", "261103-02-x", "PLAN.md"), "plan");
+    return root;
+  };
+
+  it("opens a brain path from a lane in another repo, through a named root or a spread folder", async () => {
+    const root = projects();
+    const lane = join(root, "eh-hq");
+    expect(await fileView.findFile("world/urbn.md", lane, async () => null)).toBeNull();
+    const named = [{ path: join(root, "brain"), spread: false }];
+    expect(await fileView.findFile("world/urbn.md", lane, async () => null, named)).toMatchObject({ info: { path: join(root, "brain", "world", "urbn.md") } });
+    const spread = [{ path: root, spread: true }];
+    expect(await fileView.findFile("tasks/261103-02-x/PLAN.md", lane, async () => null, spread)).toMatchObject({ info: { path: join(root, "brain", "tasks", "261103-02-x", "PLAN.md") } });
+  });
+
+  it("keeps the pane's own file first, reads from its repo's top from a subfolder, and lists a name several repos hold", async () => {
+    const root = projects();
+    mkdirSync(join(root, "eh-hq", "world"), { recursive: true });
+    writeFileSync(join(root, "eh-hq", "world", "urbn.md"), "# EH's copy");
+    const spread = [{ path: root, spread: true }];
+    // the pane's own repo wins over every root
+    expect(await fileView.findFile("world/urbn.md", join(root, "eh-hq"), async () => null, spread)).toMatchObject({ info: { path: join(root, "eh-hq", "world", "urbn.md") } });
+    // a lane in a task subfolder names repo paths from the top
+    expect(await fileView.findFile("world/urbn.md", join(root, "eh-hq", "tasks", "lane"), async () => null)).toMatchObject({ info: { path: join(root, "eh-hq", "world", "urbn.md") } });
+    // from a third repo, two spread matches are listed to choose from
+    expect(await fileView.findFile("world/urbn.md", join(root, "kontrol-hq"), async () => null, spread)).toEqual({ candidates: [join(root, "brain", "world", "urbn.md"), join(root, "eh-hq", "world", "urbn.md")] });
+    // a named root decides between them
+    expect(await fileView.findFile("world/urbn.md", join(root, "kontrol-hq"), async () => null, [{ path: join(root, "brain"), spread: false }, ...spread])).toMatchObject({ info: { path: join(root, "brain", "world", "urbn.md") } });
+    // a path that climbs out of its root is not followed
+    expect(fileView.locateInRoots("../brain/world/urbn.md", join(root, "kontrol-hq"), [{ path: join(root, "eh-hq"), spread: false }])).toBeNull();
+  });
+
+  it("reads roots from the environment and the state folder's file-roots", () => {
+    const state = mkdtempSync(join(tmpdir(), "herdr-file-roots-state-"));
+    made.push(state);
+    writeFileSync(join(state, "file-roots"), "# Tom's repos\n/srv/brain\n\n~/projects/*   # every repo\n");
+    expect(fileView.fileRoots(state, { HERDR_WEB_FILE_ROOTS: ["/a", "/b/*"].join(delimiter) })).toEqual([
+      { path: "/a", spread: false }, { path: "/b", spread: true },
+      { path: "/srv/brain", spread: false }, { path: join(homedir(), "projects"), spread: true },
+    ]);
+    expect(fileView.fileRoots(join(state, "none"), {})).toEqual([]);
+  });
+});
