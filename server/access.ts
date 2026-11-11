@@ -183,3 +183,24 @@ export function decideAccess(input: AccessInput): Access {
   if (!input.gated && !input.funnel) return { level: "full", via: "open", role: "drive" };
   return { level: "none", reason: "pairing_required" };
 }
+
+const refusalsSeen = new Map<string, number>();
+const REFUSAL_LOG_WINDOW_MS = 30_000;
+
+/**
+ * One log line per refused proxied visitor (reason, path, forwarded address, device cookie present,
+ * login header, user agent), repeated at most every 30 s per visitor and reason. Never the cookie
+ * value, a token or a code: enough to tell a phone with no cookie from one the server turned away.
+ */
+export function logRefusal(reason: string, pathname: string, request: Request, hasDeviceCookie: boolean): void {
+  const from = request.headers.get("x-forwarded-for") ?? "unknown";
+  const key = `${from}|${reason}|${pathname}`;
+  const now = Date.now();
+  const last = refusalsSeen.get(key);
+  if (last !== undefined && now - last < REFUSAL_LOG_WINDOW_MS) return;
+  refusalsSeen.set(key, now);
+  if (refusalsSeen.size > 500) for (const [k, t] of refusalsSeen) if (now - t > REFUSAL_LOG_WINDOW_MS) refusalsSeen.delete(k);
+  const ua = (request.headers.get("user-agent") ?? "").slice(0, 120);
+  const login = request.headers.get("tailscale-user-login") ?? "none";
+  console.error(`access: refused ${reason} ${request.method} ${pathname} from=${from} cookie=${hasDeviceCookie ? "yes" : "no"} login=${login} ua="${ua}"`);
+}

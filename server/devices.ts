@@ -262,8 +262,15 @@ export async function handleDeviceRequest(request: Request, pathname: string, st
     const body = await json();
     if (body instanceof Response) return body;
     if (typeof body["code"] !== "string") return badRequest("missing_code", "code is required");
-    const paired = store.pair(body["code"], normalizeLabel(body["label"], "Device"), "drive");
-    if (paired === null) return jsonResponse({ error: { code: "invalid_code", message: "the code is wrong, spent or expired; start a new pairing on the PC" } }, 401);
+    const label = normalizeLabel(body["label"], "Device");
+    const paired = store.pair(body["code"], label, "drive");
+    // the outcome, never the code: a phone whose pairing fails leaves a line the operator can read
+    const from = request.headers.get("x-forwarded-for") ?? "direct";
+    if (paired === null) {
+      console.error(`pair: refused (wrong, spent or expired code) for "${label}" from ${from}`);
+      return jsonResponse({ error: { code: "invalid_code", message: "the code is wrong, spent or expired; start a new pairing on the PC" } }, 401);
+    }
+    console.error(`pair: ok "${label}" from ${from}, secure=${isSecureRequest(request)}`);
     return noContent(deviceCookie(paired.token, isSecureRequest(request)));
   }
   if (pathname === "/api/devices") {

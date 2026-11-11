@@ -10,7 +10,7 @@ import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, Her
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, bearerMatches, handleAuthRequest, isAuthenticated, isSecureRequest, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
-import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackBind, isServeOwnerRequest, lanExposed } from "./access.ts";
+import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackBind, isServeOwnerRequest, lanExposed, logRefusal } from "./access.ts";
 import { DeviceStore, handleDeviceRequest, type DeviceMatch } from "./devices.ts";
 import { handlePreferencesRequest, PreferenceStore } from "./preferences.ts";
 import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
@@ -1830,7 +1830,10 @@ export function createServer(
         // a script's Bearer guess is told to wait; a browser's cookie gets the usual 401 and its sign-in form
         if (presented === "held" && pathname !== "/ws" && request.headers.has("authorization")) return presentedTokenHeld(client);
         // The WS client never parses a body, so the upgrade refusal stays plain text.
-        return pathname === "/ws" ? new Response("unauthorized", { status: 401 }) : unauthorizedJson(access.level === "none" ? access.reason : "token_required");
+        const reason = access.level === "none" ? access.reason : "token_required";
+        // one line per refused proxied visitor, so a phone that cannot get in leaves a trace (no code, token or cookie value)
+        if (forwarded) logRefusal(reason, pathname, request, parseCookies(request.headers.get("cookie")).has(DEVICE_COOKIE));
+        return pathname === "/ws" ? new Response("unauthorized", { status: 401 }) : unauthorizedJson(reason);
       }
 
       const readOnly = access.level === "full" && access.role === "watch";
