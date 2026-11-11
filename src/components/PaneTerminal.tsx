@@ -843,7 +843,14 @@ export function PaneTerminal({
       sending: boolean;
       /** a press the program would have had but for the forced selection, with the keys the user held: let go in place, it is a click */
       click: ClickKeys | null;
+      /** where the press landed, in CSS pixels, and whether the pointer has since travelled past CLICK_SLOP */
+      pressX: number;
+      pressY: number;
+      moved: boolean;
     }
+    // B-244: a touchpad press travels a pixel or two before it lets go. Under that distance it is a click:
+    // xterm is not let begin a selection (which would be copied on release and would stop a link opening).
+    const CLICK_SLOP = 8;
     interface ClickKeys { ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }
     const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
     let drag: Drag | null = null;
@@ -935,6 +942,7 @@ export function PaneTerminal({
       const d: Drag = {
         pane: pane ?? "", anchor: cell, cursor: cell, top: null, anchorRow: 0, offset: 0, maxOffset: 0,
         scrolled: false, edge: 0, wheelPixels: 0, sentOffset: 0, sending: false, click,
+        pressX: event.clientX, pressY: event.clientY, moved: false,
       };
       drag = d;
       if (!pane || !navigator.clipboard || observeRef.current) return;
@@ -951,6 +959,11 @@ export function PaneTerminal({
     const onMouseMove = (event: MouseEvent): void => {
       const d = drag;
       if (!d) return;
+      if (!d.moved) {
+        // still a click: xterm's document listener never sees the move, so no selection starts (B-244)
+        if (Math.hypot(event.clientX - d.pressX, event.clientY - d.pressY) < CLICK_SLOP) { event.stopPropagation(); return; }
+        d.moved = true;
+      }
       const { cell, edge } = cellAt(event);
       // a press that left its cell is a drag, even one that comes back: it is no click (cellAt clamps
       // a pointer beside the grid to the edge column, so leaving sideways counts too)
@@ -1000,7 +1013,7 @@ export function PaneTerminal({
       const released = cellAt(event).cell;
       // released on the pane it was pressed on: a pane switched meanwhile gets no click of this press
       if (d.click && d.pane !== "" && d.pane === paneRef.current && !d.scrolled && !term.hasSelection()
-        && released.row === d.anchor.row && released.col === d.anchor.col) {
+        && (!d.moved || (released.row === d.anchor.row && released.col === d.anchor.col))) {
         forwardClick(event, d.click);
         return;
       }
